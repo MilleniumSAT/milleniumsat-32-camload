@@ -1,3 +1,18 @@
+/*********
+  Rui Santos
+  Complete project details at https://RandomNerdTutorials.com/esp32-cam-take-photo-save-microsd-card
+  
+  IMPORTANT!!! 
+   - Select Board "AI Thinker ESP32-CAM"
+   - GPIO 0 must be connected to GND to upload a sketch
+   - After connecting GPIO 0 to GND, press the ESP32-CAM on-board RESET button to put your board in flashing mode
+  
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files.
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+*********/
+
 #include "esp_camera.h"
 #include "Arduino.h"
 #include "FS.h"                // SD Card ESP32
@@ -29,6 +44,8 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+#define BUTTON_PIN_BITMASK 0x8004 // GPIOs 2 and 15
+
 int pictureNumber = 0;
 
 #define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
@@ -38,6 +55,8 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
  
   Serial.begin(115200);
+  delay(2000);
+
   //Serial.setDebugOutput(true);
   //Serial.println();
 
@@ -96,12 +115,6 @@ void setup() {
     
   camera_fb_t * fb = NULL;
   
-  pinMode(5, INPUT);
-  
-  while(!digitalRead(5)){
-    delay(100);
-  }
-  
   // Take Picture with Camera
   fb = esp_camera_fb_get();  
   if(!fb) {
@@ -138,7 +151,8 @@ void setup() {
   
   delay(2000);
   Serial.println("Going to sleep now");
-  delay(2000);
+  esp_sleep_enable_timer_wakeup(60000000);
+  delay(1000);
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
 }
