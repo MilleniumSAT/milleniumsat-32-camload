@@ -31,12 +31,17 @@
 
 int pictureNumber = 0;
 
+#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  10        /* Time ESP32 will go to sleep (in seconds) */
+
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
  
   Serial.begin(115200);
   //Serial.setDebugOutput(true);
   //Serial.println();
+
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
