@@ -1,37 +1,39 @@
-/*********
-  Rui Santos
-  Complete project details at https://RandomNerdTutorials.com/esp32-cam-take-photo-save-microsd-card
-  
-  IMPORTANT!!! 
-   - Select Board "AI Thinker ESP32-CAM"
-   - GPIO 0 must be connected to GND to upload a sketch
-   - After connecting GPIO 0 to GND, press the ESP32-CAM on-board RESET button to put your board in flashing mode
-  
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files.
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-*********/
-
+/*
+  ESP32 CAM Camera with MicroSD storage
+  esp32cam-microsd.ino
+  Take picture when button pressed
+  Store image on MicroSD card
+ 
+  DroneBot Workshop 2022
+  https://dronebotworkshop.com
+*/
+// Include Required Libraries
+ 
+// Camera libraries
 #include "esp_camera.h"
-#include "Arduino.h"
-#include "FS.h"                // SD Card ESP32
-#include "SD_MMC.h"            // SD Card ESP32
-#include "soc/soc.h"           // Disable brownour problems
-#include "soc/rtc_cntl_reg.h"  // Disable brownour problems
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "driver/rtc_io.h"
-#include <EEPROM.h>            // read and write from flash memory
-
-// define the number of bytes you want to access
+ 
+// MicroSD Libraries
+#include "FS.h"
+#include "SD_MMC.h"
+ 
+// EEPROM Library
+#include "EEPROM.h"
+ 
+// Use 1 byte of EEPROM space
 #define EEPROM_SIZE 1
-
-// Pin definition for CAMERA_MODEL_AI_THINKER
+ 
+// Counter for picture number
+unsigned int pictureCount = 0;
+ 
+// Pin definitions for CAMERA_MODEL_AI_THINKER
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
 #define SIOD_GPIO_NUM     26
 #define SIOC_GPIO_NUM     27
-
 #define Y9_GPIO_NUM       35
 #define Y8_GPIO_NUM       34
 #define Y7_GPIO_NUM       39
@@ -43,26 +45,13 @@
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
-
-#define BUTTON_PIN_BITMASK 0x8004 // GPIOs 2 and 15
-
-int pictureNumber = 0;
-
-#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  10        /* Time ESP32 will go to sleep (in seconds) */
-
-void setup() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
  
-  Serial.begin(115200);
-  delay(2000);
-
-  //Serial.setDebugOutput(true);
-  //Serial.println();
-
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  
+void configESPCamera() {
+  // Configure Camera parameters
+ 
+  // Object to store the camera configuration parameters
   camera_config_t config;
+ 
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -82,81 +71,160 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_JPEG; 
-  
-  if(psramFound()){
+  config.pixel_format = PIXFORMAT_JPEG; // Choices are YUV422, GRAYSCALE, RGB565, JPEG
+ 
+  // Select lower framesize if the camera doesn't support PSRAM
+  if (psramFound()) {
     config.frame_size = FRAMESIZE_UXGA; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
-    config.jpeg_quality = 10;
+    config.jpeg_quality = 10; //10-63 lower number means higher quality
     config.fb_count = 2;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
-  
-  // Init Camera
+ 
+  // Initialize the Camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
-  
-  //Serial.println("Starting SD Card");
-  if(!SD_MMC.begin()){
-    Serial.println("SD Card Mount Failed");
+ 
+  // Camera quality adjustments
+  sensor_t * s = esp_camera_sensor_get();
+ 
+  // BRIGHTNESS (-2 to 2)
+  s->set_brightness(s, 0);
+  // CONTRAST (-2 to 2)
+  s->set_contrast(s, 0);
+  // SATURATION (-2 to 2)
+  s->set_saturation(s, 0);
+  // SPECIAL EFFECTS (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+  s->set_special_effect(s, 0);
+  // WHITE BALANCE (0 = Disable , 1 = Enable)
+  s->set_whitebal(s, 1);
+  // AWB GAIN (0 = Disable , 1 = Enable)
+  s->set_awb_gain(s, 1);
+  // WB MODES (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+  s->set_wb_mode(s, 0);
+  // EXPOSURE CONTROLS (0 = Disable , 1 = Enable)
+  s->set_exposure_ctrl(s, 1);
+  // AEC2 (0 = Disable , 1 = Enable)
+  s->set_aec2(s, 0);
+  // AE LEVELS (-2 to 2)
+  s->set_ae_level(s, 0);
+  // AEC VALUES (0 to 1200)
+  s->set_aec_value(s, 300);
+  // GAIN CONTROLS (0 = Disable , 1 = Enable)
+  s->set_gain_ctrl(s, 1);
+  // AGC GAIN (0 to 30)
+  s->set_agc_gain(s, 0);
+  // GAIN CEILING (0 to 6)
+  s->set_gainceiling(s, (gainceiling_t)0);
+  // BPC (0 = Disable , 1 = Enable)
+  s->set_bpc(s, 0);
+  // WPC (0 = Disable , 1 = Enable)
+  s->set_wpc(s, 1);
+  // RAW GMA (0 = Disable , 1 = Enable)
+  s->set_raw_gma(s, 1);
+  // LENC (0 = Disable , 1 = Enable)
+  s->set_lenc(s, 1);
+  // HORIZ MIRROR (0 = Disable , 1 = Enable)
+  s->set_hmirror(s, 0);
+  // VERT FLIP (0 = Disable , 1 = Enable)
+  s->set_vflip(s, 0);
+  // DCW (0 = Disable , 1 = Enable)
+  s->set_dcw(s, 1);
+  // COLOR BAR PATTERN (0 = Disable , 1 = Enable)
+  s->set_colorbar(s, 0);
+ 
+}
+ 
+void initMicroSDCard() {
+  // Start the MicroSD card
+ 
+  Serial.println("Mounting MicroSD Card");
+  if (!SD_MMC.begin()) {
+    Serial.println("MicroSD Card Mount Failed");
     return;
   }
-  
   uint8_t cardType = SD_MMC.cardType();
-  if(cardType == CARD_NONE){
-    Serial.println("No SD Card attached");
+  if (cardType == CARD_NONE) {
+    Serial.println("No MicroSD Card found");
     return;
   }
-    
-  camera_fb_t * fb = NULL;
-  
+ 
+}
+ 
+void takeNewPhoto(String path) {
   // Take Picture with Camera
-  fb = esp_camera_fb_get();  
-  if(!fb) {
+ 
+  // Setup frame buffer
+  camera_fb_t  * fb = esp_camera_fb_get();
+ 
+  if (!fb) {
     Serial.println("Camera capture failed");
     return;
   }
-  // initialize EEPROM with predefined size
-  EEPROM.begin(EEPROM_SIZE);
-  pictureNumber = EEPROM.read(0) + 1;
-
-  // Path where new picture will be saved in SD Card
-  String path = "/picture" + String(pictureNumber) +".jpg";
-
-  fs::FS &fs = SD_MMC; 
-  Serial.printf("Picture file name: %s\n", path.c_str());
-  
+ 
+  // Save picture to microSD card
+  fs::FS &fs = SD_MMC;
   File file = fs.open(path.c_str(), FILE_WRITE);
-  if(!file){
-    Serial.println("Failed to open file in writing mode");
-  } 
+  if (!file) {
+    Serial.println("Failed to open file in write mode");
+  }
   else {
     file.write(fb->buf, fb->len); // payload (image), payload length
     Serial.printf("Saved file to path: %s\n", path.c_str());
-    EEPROM.write(0, pictureNumber);
-    EEPROM.commit();
   }
+  // Close the file
   file.close();
-  esp_camera_fb_return(fb); 
-  
-  // Turns off the ESP32-CAM white on-board LED (flash) connected to GPIO 4
-  pinMode(4, OUTPUT);
-  digitalWrite(4, LOW);
-  rtc_gpio_hold_en(GPIO_NUM_4);
-  
-  delay(2000);
-  Serial.println("Going to sleep now");
-  esp_sleep_enable_timer_wakeup(60000000);
-  delay(1000);
-  esp_deep_sleep_start();
-  Serial.println("This will never be printed");
+ 
+  // Return the frame buffer back to the driver for reuse
+  esp_camera_fb_return(fb);
 }
+ 
+void setup() {
+ 
+  // Disable brownout detector
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+ 
+  // Start Serial Monitor
+  Serial.begin(115200);
+ 
+  // Initialize the camera
+  Serial.print("Initializing the camera module...");
+  configESPCamera();
+  Serial.println("Camera OK!");
+ 
+  // Initialize the MicroSD
+  Serial.print("Initializing the MicroSD card module... ");
+  initMicroSDCard();
+ 
+  // initialize EEPROM with predefined size
+  EEPROM.begin(EEPROM_SIZE);
 
+
+ 
+
+
+ 
+}
+ 
 void loop() {
+    pictureCount = EEPROM.read(0) + 1;
+   
+  // Path where new picture will be saved in SD Card
+  String path = "/image" + String(pictureCount) + ".jpg";
+  Serial.printf("Picture file name: %s\n", path.c_str());
   
+   // Take and Save Photo
+  takeNewPhoto(path);
+ 
+  // Update EEPROM picture number counter
+  EEPROM.write(0, pictureCount);
+  EEPROM.commit();
+
+  delay(5000);
 }
